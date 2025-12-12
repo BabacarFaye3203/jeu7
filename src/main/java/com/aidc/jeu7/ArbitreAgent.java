@@ -148,11 +148,12 @@ public class ArbitreAgent extends Agent {
         lancersEffectues = 0;
         scoreTour = 0;
         boolean tourTermine = false;
+        boolean septObtenu = false; // Flag pour suivre si un 7 a été obtenu
 
         System.out.println("\n--- Tour de " + agentName + " ---");
         sendGameUpdate("nouveau_tour", "joueur=" + role + ";score_tour=0;lancers=0");
 
-        while (!tourTermine && lancersEffectues < maxLancersParTour && !jeuTermine) {
+        while (!tourTermine && lancersEffectues < maxLancersParTour && !jeuTermine && !septObtenu) {
             sendActionRequest(agentName, role);
             sendGameUpdate("attente_decision", "joueur=" + role);
 
@@ -180,9 +181,21 @@ public class ArbitreAgent extends Agent {
                 // PAUSE de 3 secondes avant le lancer (dramatisation)
                 try { Thread.sleep(3000); } catch (InterruptedException e) {}
 
-                lancerDes(agentName, role);
+                // CORRECTION : Appeler la méthode qui retourne si un 7 a été obtenu
+                septObtenu = lancerDes(agentName, role);
                 lancersEffectues++;
                 sendGameUpdate("lancers_effectues", "nombre=" + lancersEffectues);
+
+                // CORRECTION : Si 7 obtenu, terminer le tour immédiatement
+                if (septObtenu) {
+                    System.out.println("7 obtenu! " + agentName + " perd ses points et passe la main.");
+                    addScoreGlobal(role, 0); // Ajouter 0 au score global (car scoreTour = 0)
+                    sendGameUpdate("sept_obtenu", "joueur=" + role + ";message=7 obtenu! Perte des points et passage de main.");
+
+                    // PAUSE de 3 secondes avant de passer au joueur suivant
+                    try { Thread.sleep(3000); } catch (InterruptedException e) {}
+                    break; // Sortir immédiatement de la boucle
+                }
 
                 if (lancersEffectues >= maxLancersParTour) {
                     sendGameUpdate("max_lancers_atteint", "joueur=" + role);
@@ -200,22 +213,31 @@ public class ArbitreAgent extends Agent {
             }
         }
 
-        // Si atteint le max de lancers
-        if (lancersEffectues >= maxLancersParTour && !tourTermine && !jeuTermine) {
+        // Si atteint le max de lancers ET pas de 7 obtenu
+        if (lancersEffectues >= maxLancersParTour && !tourTermine && !jeuTermine && !septObtenu) {
             addScoreGlobal(role, scoreTour);
             sendGameUpdate("fin_tour_max_lancers", "joueur=" + role + ";score_tour=" + scoreTour);
         }
 
-        System.out.println("Fin tour " + role + ". Score tour: " + scoreTour +
-                " | Total IA1: " + scoreIA1 + " | IA2: " + scoreIA2);
-        sendGameUpdate("fin_tour", "joueur=" + role + ";score_final_tour=" + scoreTour +
-                ";total_ia1=" + scoreIA1 + ";total_ia2=" + scoreIA2);
+        // Afficher le résumé seulement si pas de 7
+        if (!septObtenu) {
+            System.out.println("Fin tour " + role + ". Score tour: " + scoreTour +
+                    " | Total IA1: " + scoreIA1 + " | IA2: " + scoreIA2);
+            sendGameUpdate("fin_tour", "joueur=" + role + ";score_final_tour=" + scoreTour +
+                    ";total_ia1=" + scoreIA1 + ";total_ia2=" + scoreIA2);
+        } else {
+            // Si 7 obtenu, afficher un message spécial
+            System.out.println("Fin tour " + role + " (7 obtenu). Score tour: 0" +
+                    " | Total IA1: " + scoreIA1 + " | IA2: " + scoreIA2);
+            sendGameUpdate("fin_tour_sept", "joueur=" + role + ";score_final_tour=0;sept_obtenu=true" +
+                    ";total_ia1=" + scoreIA1 + ";total_ia2=" + scoreIA2);
+        }
 
         // PAUSE de 3 secondes entre les tours
         try { Thread.sleep(3000); } catch (InterruptedException e) {}
     }
 
-    private void lancerDes(String agentName, String role) {
+    private boolean lancerDes(String agentName, String role) {
         int de1 = 1 + random.nextInt(6);
         int de2 = 1 + random.nextInt(6);
         int somme = de1 + de2;
@@ -227,13 +249,15 @@ public class ArbitreAgent extends Agent {
         try { Thread.sleep(300); } catch (InterruptedException e) {}
 
         if (somme == 7) {
-            scoreTour = 0;
-            System.out.println("=> 7 obtenu! Score tour réinitialisé.");
+            scoreTour = 0; // Perte de tous les points du tour
+            System.out.println("=> 7 obtenu! Score tour réinitialisé et passage de main.");
             sendGameUpdate("lancer_resultat", String.format("joueur=%s;de1=%d;de2=%d;resultat=7;score_tour=0", role, de1, de2));
+            return true; // Retourne true pour indiquer qu'un 7 a été obtenu
         } else {
             scoreTour += somme;
             System.out.println("Score tour " + role + ": " + scoreTour);
             sendGameUpdate("lancer_resultat", String.format("joueur=%s;de1=%d;de2=%d;resultat=ok;score_tour=%d", role, de1, de2, scoreTour));
+            return false; // Retourne false car pas de 7
         }
     }
 
@@ -295,7 +319,7 @@ public class ArbitreAgent extends Agent {
         System.out.println("Arbitre: Fin de partie envoyée");
 
         // Envoyer un message supplémentaire pour indiquer que le jeu peut être redémarré
-        sendControlMessage("fin_partie;message=Partie terminée - Cliquez sur Réinitialiser pour une nouvelle partie");
+        sendControlMessage("fin_partie;message=Partie terminée - Cliquez sur Nouvelle partie pour recommencer");
     }
 
     private void sendActionRequest(String agentLocalName, String role) {
