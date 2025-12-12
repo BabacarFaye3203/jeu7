@@ -157,7 +157,7 @@ public class ObservateurFX extends Agent {
             root.setStyle("-fx-background-color: linear-gradient(to bottom, #1a1a2e, #16213e);");
 
             // Titre
-            Label title = new Label("🎮 JEU DE SEPT - OBSERVATEUR");
+            Label title = new Label("🎮 JEU DE SEPT ");
             title.setFont(Font.font("Arial", FontWeight.BOLD, 28));
             title.setTextFill(Color.WHITE);
             title.setAlignment(Pos.CENTER);
