@@ -1,7 +1,7 @@
 package com.aidc.jeu7;
 
 import jade.core.Agent;
-import jade.core.AID; // AJOUTEZ CET IMPORT
+import jade.core.AID;
 import jade.core.behaviours.CyclicBehaviour;
 import jade.lang.acl.ACLMessage;
 import jade.lang.acl.MessageTemplate;
@@ -29,7 +29,6 @@ public class ObservateurFX extends Agent {
 
         // Initialiser JavaFX toolkit d'abord
         try {
-            // Cette méthode initialise JavaFX toolkit
             Platform.startup(() -> {});
         } catch (IllegalStateException e) {
             // JavaFX est déjà initialisé, c'est bon
@@ -42,7 +41,7 @@ public class ObservateurFX extends Agent {
                 Scene scene = uiInstance.createScene();
                 Stage stage = new Stage();
                 stage.setScene(scene);
-                stage.setTitle("Jeu de Sept - Contrôle Étape par Étape");
+                stage.setTitle("Jeu de Sept - Observateur");
                 stage.show();
                 uiInstance.logMessage("=== SYSTÈME INITIALISÉ ===");
                 uiInstance.logMessage("En attente du démarrage du jeu...");
@@ -118,16 +117,34 @@ public class ObservateurFX extends Agent {
     // Classe UI JavaFX
     public class ObservateurUI {
         private ObservateurFX agent;
-        private TextArea logArea;
+        private TextArea logIA1Area, logIA2Area, logGeneralArea;
         private Label lblScoreIA1, lblScoreIA2, lblTour, lblJoueurCourant, lblScoreTour, lblLancersRestants;
         private Label lblMessageStatut;
         private BarChart<String, Number> scoreChart;
         private XYChart.Series<String, Number> seriesIA1, seriesIA2;
         private VBox root;
-        private Button btnDemarrer, btnSuivant, btnQuitter, btnModeAuto;
+        private Button btnDemarrer, btnReinitialiser, btnQuitter;
         private Label lblDe1, lblDe2, lblResultat;
+        private TableView<TourScore> scoreTableView;
         private int currentTour = 0;
-        private boolean modeAuto = false;
+        private boolean partieTerminee = false;
+
+        // Classe pour stocker les scores par tour
+        public static class TourScore {
+            private final int tour;
+            private final int scoreIA1;
+            private final int scoreIA2;
+
+            public TourScore(int tour, int scoreIA1, int scoreIA2) {
+                this.tour = tour;
+                this.scoreIA1 = scoreIA1;
+                this.scoreIA2 = scoreIA2;
+            }
+
+            public int getTour() { return tour; }
+            public int getScoreIA1() { return scoreIA1; }
+            public int getScoreIA2() { return scoreIA2; }
+        }
 
         public ObservateurUI(ObservateurFX agent) {
             this.agent = agent;
@@ -140,12 +157,12 @@ public class ObservateurFX extends Agent {
             root.setStyle("-fx-background-color: linear-gradient(to bottom, #1a1a2e, #16213e);");
 
             // Titre
-            Label title = new Label("🎮 JEU DE SEPT - ÉTAPE PAR ÉTAPE");
+            Label title = new Label("🎮 JEU DE SEPT - OBSERVATEUR");
             title.setFont(Font.font("Arial", FontWeight.BOLD, 28));
             title.setTextFill(Color.WHITE);
             title.setAlignment(Pos.CENTER);
 
-            // Panneau de contrôle
+            // Panneau de contrôle simplifié
             HBox controlPanel = createControlPanel();
 
             // Panneau des scores
@@ -157,12 +174,11 @@ public class ObservateurFX extends Agent {
             // Graphique des scores
             scoreChart = createScoreChart();
 
-            // Zone de log
-            logArea = new TextArea();
-            logArea.setEditable(false);
-            logArea.setPrefHeight(200);
-            logArea.setStyle("-fx-control-inner-background: #0f3460; -fx-text-fill: white; " +
-                    "-fx-font-family: 'Monospaced'; -fx-font-size: 12px;");
+            // Tableau des scores par tour
+            scoreTableView = createScoreTable();
+
+            // Zones de log séparées
+            HBox logsContainer = createLogsContainer();
 
             // Message de statut
             lblMessageStatut = new Label("Prêt à démarrer...");
@@ -173,63 +189,90 @@ public class ObservateurFX extends Agent {
 
             // Ajout des composants
             root.getChildren().addAll(title, controlPanel, scorePanel, dicePanel,
-                    scoreChart, lblMessageStatut, logArea);
+                    scoreChart, scoreTableView, lblMessageStatut, logsContainer);
 
             // Scène
-            Scene scene = new Scene(root, 1000, 800);
+            Scene scene = new Scene(root, 1200, 900);
 
             return scene;
         }
 
         private HBox createControlPanel() {
-            HBox panel = new HBox(10);
+            HBox panel = new HBox(15);
             panel.setAlignment(Pos.CENTER);
             panel.setPadding(new Insets(10));
             panel.setStyle("-fx-background-color: rgba(255,255,255,0.1); -fx-background-radius: 10;");
 
-            btnDemarrer = createButton("▶ Démarrer", Color.LIMEGREEN);
-            btnSuivant = createButton("⏭ Suivant", Color.DODGERBLUE);
+            btnDemarrer = createButton("▶ Démarrer une partie", Color.LIMEGREEN);
+            btnReinitialiser = createButton("🔄 Nouvelle partie", Color.DARKORANGE);
             btnQuitter = createButton("⏹ Quitter", Color.INDIANRED);
-            btnModeAuto = createButton("🤖 Mode Auto", Color.GOLD);
 
-            btnSuivant.setDisable(true);
-            btnModeAuto.setDisable(true);
+            // Initialement, Réinitialiser est désactivé
+            btnReinitialiser.setDisable(true);
 
             // Actions des boutons
             btnDemarrer.setOnAction(e -> {
-                logMessage("Démarrage du jeu...");
+                logMessage("Démarrage de la partie...");
                 btnDemarrer.setDisable(true);
-                btnSuivant.setDisable(false);
-                btnModeAuto.setDisable(false);
+                btnReinitialiser.setDisable(true);
+                partieTerminee = false;
                 agent.envoyerCommande("action=demarrer");
             });
 
-            btnSuivant.setOnAction(e -> {
-                agent.envoyerCommande("action=suivant");
+            btnReinitialiser.setOnAction(e -> {
+                reinitialiserInterface();
+                agent.envoyerCommande("action=reinitialiser");
             });
 
             btnQuitter.setOnAction(e -> {
                 agent.envoyerCommande("action=quitter");
                 btnDemarrer.setDisable(false);
-                btnSuivant.setDisable(true);
-                btnModeAuto.setDisable(true);
+                btnReinitialiser.setDisable(false);
             });
 
-            btnModeAuto.setOnAction(e -> {
-                modeAuto = !modeAuto;
-                if (modeAuto) {
-                    btnModeAuto.setText("⏸ Mode Manuel");
-                    btnModeAuto.setStyle("-fx-background-color: #ff9800; -fx-text-fill: white;");
-                    logMessage("Mode automatique activé");
-                } else {
-                    btnModeAuto.setText("🤖 Mode Auto");
-                    btnModeAuto.setStyle("-fx-background-color: gold; -fx-text-fill: black;");
-                    logMessage("Mode manuel activé");
-                }
-            });
-
-            panel.getChildren().addAll(btnDemarrer, btnSuivant, btnModeAuto, btnQuitter);
+            panel.getChildren().addAll(btnDemarrer, btnReinitialiser, btnQuitter);
             return panel;
+        }
+
+        private void reinitialiserInterface() {
+            // Réinitialiser les scores
+            lblScoreIA1.setText("0");
+            lblScoreIA2.setText("0");
+            lblTour.setText("1/5");
+            lblJoueurCourant.setText("---");
+            lblScoreTour.setText("0");
+            lblLancersRestants.setText("3/3");
+
+            // Réinitialiser les dés
+            lblDe1.setText("?");
+            lblDe2.setText("?");
+            lblResultat.setText("?");
+            lblDe1.setTextFill(Color.WHITE);
+            lblDe2.setTextFill(Color.WHITE);
+            lblResultat.setTextFill(Color.GOLD);
+
+            // Vider les logs
+            logIA1Area.clear();
+            logIA2Area.clear();
+            logGeneralArea.clear();
+
+            // Réinitialiser le graphique
+            seriesIA1.getData().clear();
+            seriesIA2.getData().clear();
+
+            // Vider le tableau des scores
+            scoreTableView.getItems().clear();
+
+            // Réinitialiser les variables
+            currentTour = 0;
+            partieTerminee = false;
+
+            // Réactiver les boutons
+            btnDemarrer.setDisable(false);
+            btnReinitialiser.setDisable(true);
+
+            logMessage("=== INTERFACE RÉINITIALISÉE ===");
+            logMessage("Cliquez sur 'Démarrer une partie' pour commencer");
         }
 
         private GridPane createScorePanel() {
@@ -253,7 +296,7 @@ public class ObservateurFX extends Agent {
             tourTitle.setFont(Font.font("Arial", FontWeight.BOLD, 14));
             tourTitle.setTextFill(Color.WHITE);
 
-            lblTour = new Label("0/5");
+            lblTour = new Label("1/5");
             lblTour.setFont(Font.font("Arial", FontWeight.BOLD, 24));
             lblTour.setTextFill(Color.GOLD);
 
@@ -383,11 +426,80 @@ public class ObservateurFX extends Agent {
             return chart;
         }
 
+        private TableView<TourScore> createScoreTable() {
+            TableView<TourScore> table = new TableView<>();
+            table.setPrefHeight(150);
+
+            TableColumn<TourScore, Integer> tourCol = new TableColumn<>("Tour");
+            tourCol.setCellValueFactory(cellData ->
+                    new javafx.beans.property.SimpleIntegerProperty(cellData.getValue().getTour()).asObject());
+            tourCol.setPrefWidth(100);
+
+            TableColumn<TourScore, Integer> ia1Col = new TableColumn<>("Score IA1");
+            ia1Col.setCellValueFactory(cellData ->
+                    new javafx.beans.property.SimpleIntegerProperty(cellData.getValue().getScoreIA1()).asObject());
+            ia1Col.setPrefWidth(150);
+
+            TableColumn<TourScore, Integer> ia2Col = new TableColumn<>("Score IA2");
+            ia2Col.setCellValueFactory(cellData ->
+                    new javafx.beans.property.SimpleIntegerProperty(cellData.getValue().getScoreIA2()).asObject());
+            ia2Col.setPrefWidth(150);
+
+            table.getColumns().addAll(tourCol, ia1Col, ia2Col);
+
+            // Style de la table
+            table.setStyle("-fx-background-color: rgba(255,255,255,0.05);");
+
+            return table;
+        }
+
+        private HBox createLogsContainer() {
+            HBox logsContainer = new HBox(10);
+            logsContainer.setPrefHeight(250);
+
+            // Log IA1
+            VBox ia1LogBox = createLogPanel("🤖 IA1 - ACTIONS", Color.LIGHTBLUE);
+            logIA1Area = (TextArea) ((VBox) ia1LogBox.getChildren().get(1)).getChildren().get(0);
+
+            // Log général (centre)
+            VBox generalLogBox = createLogPanel("📢 ÉVÉNEMENTS GÉNÉRAUX", Color.LIGHTGREEN);
+            logGeneralArea = (TextArea) ((VBox) generalLogBox.getChildren().get(1)).getChildren().get(0);
+
+            // Log IA2
+            VBox ia2LogBox = createLogPanel("🤖 IA2 - ACTIONS", Color.LIGHTPINK);
+            logIA2Area = (TextArea) ((VBox) ia2LogBox.getChildren().get(1)).getChildren().get(0);
+
+            logsContainer.getChildren().addAll(ia1LogBox, generalLogBox, ia2LogBox);
+            return logsContainer;
+        }
+
+        private VBox createLogPanel(String title, Color color) {
+            VBox container = new VBox(5);
+
+            Label titleLabel = new Label(title);
+            titleLabel.setFont(Font.font("Arial", FontWeight.BOLD, 14));
+            titleLabel.setTextFill(color);
+            titleLabel.setAlignment(Pos.CENTER);
+
+            TextArea logArea = new TextArea();
+            logArea.setEditable(false);
+            logArea.setPrefHeight(200);
+            logArea.setPrefWidth(350);
+            logArea.setStyle("-fx-control-inner-background: #0f3460; -fx-text-fill: white; " +
+                    "-fx-font-family: 'Monospaced'; -fx-font-size: 11px;");
+
+            VBox contentBox = new VBox(5);
+            contentBox.getChildren().add(logArea);
+
+            container.getChildren().addAll(titleLabel, contentBox);
+            return container;
+        }
+
         private Button createButton(String text, Color color) {
             Button btn = new Button(text);
             btn.setFont(Font.font("Arial", FontWeight.BOLD, 14));
             btn.setTextFill(Color.WHITE);
-            btn.setStyle(String.format("-fx-background-color: %s; -fx-padding: 10px 20px; -fx-background-radius: 5px;",
+            btn.setStyle(String.format("-fx-background-color: %s; -fx-padding: 12px 24px; -fx-background-radius: 5px;",
                     color.toString().replace("0x", "#")));
             btn.setCursor(javafx.scene.Cursor.HAND);
             return btn;
@@ -398,11 +510,17 @@ public class ObservateurFX extends Agent {
                 System.out.println("UI reçoit: " + content);
                 String[] parts = content.split(";");
 
-                // Variables par défaut
-                int ia1Score = 0, ia2Score = 0, scoreTour = 0, tour = 0, lancers = 0;
-                String joueur = "", message = "", etat = "";
+                // Variables
+                String type = "";
+                String joueur = "";
+                String decision = "";
                 int de1 = 0, de2 = 0;
                 String resultat = "";
+                int scoreTour = 0;
+                int tour = 0;
+                String message = "";
+                int ia1Score = 0, ia2Score = 0;
+                int lancers = 0;
 
                 for (String p : parts) {
                     p = p.trim();
@@ -412,35 +530,37 @@ public class ObservateurFX extends Agent {
                         String value = keyValue[1];
 
                         switch (key) {
-                            case "ia1": ia1Score = Integer.parseInt(value); break;
-                            case "ia2": ia2Score = Integer.parseInt(value); break;
-                            case "score_tour": scoreTour = Integer.parseInt(value); break;
-                            case "tour": tour = Integer.parseInt(value); break;
+                            case "type": type = value; break;
                             case "joueur": joueur = value; break;
+                            case "decision": decision = value; break;
                             case "de1": de1 = Integer.parseInt(value); break;
                             case "de2": de2 = Integer.parseInt(value); break;
                             case "resultat": resultat = value; break;
-                            case "lancers": lancers = Integer.parseInt(value); break;
+                            case "score_tour": scoreTour = Integer.parseInt(value); break;
+                            case "tour": tour = Integer.parseInt(value); break;
                             case "message": message = value; break;
-                            case "etat": etat = value; break;
+                            case "ia1": ia1Score = Integer.parseInt(value); break;
+                            case "ia2": ia2Score = Integer.parseInt(value); break;
+                            case "lancers": lancers = Integer.parseInt(value); break;
                         }
                     }
                 }
 
-                // Mettre à jour l'interface
-                int finalIa1Score = ia1Score;
-                int finalIa2Score = ia2Score;
-                int finalTour = tour;
-                String finalJoueur = joueur;
-                int finalScoreTour = scoreTour;
-                int finalLancers = lancers;
+                final String finalType = type;
+                final String finalJoueur = joueur;
+                final String finalDecision = decision;
+                final int finalDe1 = de1;
+                final int finalDe2 = de2;
+                final String finalResultat = resultat;
+                final int finalScoreTour = scoreTour;
+                final int finalTour = tour;
+                final int finalIa1Score = ia1Score;
+                final int finalIa2Score = ia2Score;
+                final int finalLancers = lancers;
+
                 String finalMessage = message;
-                int finalDe = de1;
-                int finalDe1 = de2;
-                String finalResultat = resultat;
-                int finalDe2 = de1;
-                int finalDe3 = de2;
                 Platform.runLater(() -> {
+                    // Mettre à jour les labels de score
                     lblScoreIA1.setText(String.valueOf(finalIa1Score));
                     lblScoreIA2.setText(String.valueOf(finalIa2Score));
                     lblTour.setText(finalTour + "/5");
@@ -448,72 +568,99 @@ public class ObservateurFX extends Agent {
                     lblScoreTour.setText(String.valueOf(finalScoreTour));
                     lblLancersRestants.setText((3 - finalLancers) + "/3");
 
-                    // Mettre à jour le message de statut
-                    if (!finalMessage.isEmpty()) {
-                        lblMessageStatut.setText(finalMessage);
-                    }
+                    // Traiter selon le type de message
+                    switch (finalType) {
+                        case "reinitialisation":
+                            logGeneralArea.appendText("=== JEU RÉINITIALISÉ ===\n");
+                            logGeneralArea.appendText("Prêt pour une nouvelle partie\n");
+                            break;
 
-                    // Mettre à jour les dés si un lancer a eu lieu
-                    if (finalDe > 0 && finalDe1 > 0) {
-                        updateDice(finalDe, finalDe1, finalResultat);
+                        case "debut_tour":
+                            logGeneralArea.appendText("=== DÉBUT DU TOUR " + finalTour + " ===\n");
+                            logGeneralArea.appendText("C'est au tour de " + finalJoueur + "\n");
+                            break;
+
+                        case "decision":
+                            String logMessage = "Décision: " + finalDecision + "\n";
+                            if (finalJoueur.equals("IA1")) {
+                                logIA1Area.appendText(logMessage);
+                            } else {
+                                logIA2Area.appendText(logMessage);
+                            }
+                            break;
+
+                        case "lancer_resultat":
+                            String diceMessage = String.format("Lancer: %d + %d = %d",
+                                    finalDe1, finalDe2, (finalDe1+finalDe2));
+                            if (finalResultat.equals("7")) {
+                                diceMessage += " -> 7! Score perdu!\n";
+                            } else {
+                                diceMessage += " -> OK (+" + (finalDe1+finalDe2) + ")\n";
+                            }
+
+                            if (finalJoueur.equals("IA1")) {
+                                logIA1Area.appendText(diceMessage);
+                            } else {
+                                logIA2Area.appendText(diceMessage);
+                            }
+
+                            // Mettre à jour l'affichage des dés
+                            updateDice(finalDe1, finalDe2, finalResultat);
+                            break;
+
+                        case "fin_tour":
+                            String tourMessage = String.format("Fin tour - Score tour: %d\n", finalScoreTour);
+                            if (finalJoueur.equals("IA1")) {
+                                logIA1Area.appendText("---\n" + tourMessage);
+                            } else {
+                                logIA2Area.appendText("---\n" + tourMessage);
+                            }
+
+                            // Mettre à jour le tableau des scores
+                            updateScoreTable(finalTour, finalIa1Score, finalIa2Score);
+                            break;
+
+                        default:
+                            // Messages généraux
+                            if (!finalMessage.isEmpty()) {
+                                logGeneralArea.appendText(finalMessage + "\n");
+                            }
+                            break;
                     }
 
                     // Mettre à jour le graphique
                     updateChart(finalTour, finalIa1Score, finalIa2Score);
 
-                    // Log des événements importants
-                    if (content.contains("debut_tour")) {
-                        logMessage("=== DÉBUT DU TOUR " + finalTour + " ===");
-                        logMessage("C'est au tour de " + finalJoueur);
-                    } else if (content.contains("lancer_resultat")) {
-                        String result = finalResultat.equals("7") ? "7 - Score perdu!" : "OK (+" + (finalDe + finalDe1) + ")";
-                        logMessage(finalJoueur + " lance: " + finalDe + " + " + finalDe1 + " = " + (finalDe2 + finalDe3) + " -> " + result);
-                    } else if (content.contains("decision")) {
-                        String decision = content.contains("decision=LANCER") ? "LANCER" : "PASSER";
-                        logMessage(finalJoueur + " décide: " + decision);
-                    } else if (content.contains("fin_tour")) {
-                        logMessage("Fin du tour de " + finalJoueur + ": Score tour = " + finalScoreTour);
-                    }
-
-                    // Si mode auto, déclencher automatiquement l'étape suivante
-                    if (modeAuto && !content.contains("attente")) {
-                        new Thread(() -> {
-                            try {
-                                Thread.sleep(1000); // Pause d'1 seconde entre les étapes
-                                Platform.runLater(() -> {
-                                    btnSuivant.fire();
-                                });
-                            } catch (InterruptedException e) {
-                                e.printStackTrace();
-                            }
-                        }).start();
-                    }
+                    // Faire défiler automatiquement
+                    logIA1Area.setScrollTop(Double.MAX_VALUE);
+                    logIA2Area.setScrollTop(Double.MAX_VALUE);
+                    logGeneralArea.setScrollTop(Double.MAX_VALUE);
                 });
 
             } catch (Exception e) {
-                logMessage("[ERREUR] Parsing: " + content);
+                Platform.runLater(() -> {
+                    logGeneralArea.appendText("[ERREUR] Parsing: " + content + "\n");
+                });
                 e.printStackTrace();
             }
         }
 
         private void updateDice(int de1, int de2, String resultat) {
-            Platform.runLater(() -> {
-                lblDe1.setText(String.valueOf(de1));
-                lblDe2.setText(String.valueOf(de2));
-                int somme = de1 + de2;
-                lblResultat.setText(String.valueOf(somme));
+            lblDe1.setText(String.valueOf(de1));
+            lblDe2.setText(String.valueOf(de2));
+            int somme = de1 + de2;
+            lblResultat.setText(String.valueOf(somme));
 
-                // Changer la couleur selon le résultat
-                if (resultat.equals("7")) {
-                    lblResultat.setTextFill(Color.RED);
-                    lblDe1.setTextFill(Color.RED);
-                    lblDe2.setTextFill(Color.RED);
-                } else {
-                    lblResultat.setTextFill(Color.GREEN);
-                    lblDe1.setTextFill(Color.WHITE);
-                    lblDe2.setTextFill(Color.WHITE);
-                }
-            });
+            // Changer la couleur selon le résultat
+            if (resultat.equals("7")) {
+                lblResultat.setTextFill(Color.RED);
+                lblDe1.setTextFill(Color.RED);
+                lblDe2.setTextFill(Color.RED);
+            } else {
+                lblResultat.setTextFill(Color.GREEN);
+                lblDe1.setTextFill(Color.WHITE);
+                lblDe2.setTextFill(Color.WHITE);
+            }
         }
 
         private void updateChart(int tour, int ia1Score, int ia2Score) {
@@ -527,20 +674,52 @@ public class ObservateurFX extends Agent {
             }
         }
 
+        private void updateScoreTable(int tour, int ia1Score, int ia2Score) {
+            // Vérifier si ce tour existe déjà dans le tableau
+            boolean tourExiste = false;
+            for (TourScore ts : scoreTableView.getItems()) {
+                if (ts.getTour() == tour) {
+                    tourExiste = true;
+                    break;
+                }
+            }
+
+            if (!tourExiste) {
+                scoreTableView.getItems().add(new TourScore(tour, ia1Score, ia2Score));
+            } else {
+                // Mettre à jour le tour existant
+                for (int i = 0; i < scoreTableView.getItems().size(); i++) {
+                    TourScore ts = scoreTableView.getItems().get(i);
+                    if (ts.getTour() == tour) {
+                        scoreTableView.getItems().set(i, new TourScore(tour, ia1Score, ia2Score));
+                        break;
+                    }
+                }
+            }
+        }
+
         public void updateControlMessage(String content) {
             Platform.runLater(() -> {
                 if (content.contains("message=")) {
                     String message = content.split("message=")[1];
                     lblMessageStatut.setText(message);
-                    logMessage("[CONTROLE] " + message);
+                    logGeneralArea.appendText("[SYSTÈME] " + message + "\n");
 
                     if (content.contains("attente_demarrage")) {
                         btnDemarrer.setDisable(false);
+                        btnReinitialiser.setDisable(true);
                     } else if (content.contains("jeu_demarre")) {
                         btnDemarrer.setDisable(true);
-                        btnSuivant.setDisable(false);
+                        btnReinitialiser.setDisable(true);
+                    } else if (content.contains("fin_partie")) {
+                        partieTerminee = true;
+                        btnReinitialiser.setDisable(false);
+                    } else if (content.contains("jeu_reinitialise")) {
+                        btnDemarrer.setDisable(false);
+                        btnReinitialiser.setDisable(true);
                     }
                 }
+                logGeneralArea.setScrollTop(Double.MAX_VALUE);
             });
         }
 
@@ -572,31 +751,32 @@ public class ObservateurFX extends Agent {
                         color = Color.GOLD;
                     }
 
-                    logMessage("\n=== FIN DE PARTIE ===");
-                    logMessage(message);
-                    logMessage("Score final: IA1 = " + ia1Score + " | IA2 = " + ia2Score);
+                    logGeneralArea.appendText("\n=== FIN DE PARTIE ===\n");
+                    logGeneralArea.appendText(message + "\n");
+                    logGeneralArea.appendText("Score final: IA1 = " + ia1Score + " | IA2 = " + ia2Score + "\n");
 
-                    // Désactiver les boutons
-                    btnSuivant.setDisable(true);
-                    btnModeAuto.setDisable(true);
+                    // Activer le bouton Nouvelle partie
+                    btnReinitialiser.setDisable(false);
+                    partieTerminee = true;
 
                     // Afficher une alerte
                     Alert alert = new Alert(Alert.AlertType.INFORMATION);
                     alert.setTitle("Fin de Partie");
                     alert.setHeaderText(message);
-                    alert.setContentText("Score final:\nIA1: " + ia1Score + "\nIA2: " + ia2Score);
+                    alert.setContentText("Score final:\nIA1: " + ia1Score + "\nIA2: " + ia2Score +
+                            "\n\nCliquez sur 'Nouvelle partie' pour recommencer.");
                     alert.showAndWait();
 
                 } catch (Exception e) {
-                    logMessage("[ERREUR] Parsing fin de partie: " + content);
+                    logGeneralArea.appendText("[ERREUR] Parsing fin de partie: " + content + "\n");
                 }
             });
         }
 
         public void logMessage(String message) {
             Platform.runLater(() -> {
-                logArea.appendText(message + "\n");
-                logArea.setScrollTop(Double.MAX_VALUE);
+                logGeneralArea.appendText(message + "\n");
+                logGeneralArea.setScrollTop(Double.MAX_VALUE);
             });
         }
     }
